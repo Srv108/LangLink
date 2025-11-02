@@ -5,8 +5,39 @@ from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
 from django.contrib.auth.models import User
 from django.contrib import messages
 from django.db.models import Q
+from django.views.generic import TemplateView
 from .models import Profile, Message, ChatRoom
 from .forms import ProfileForm
+
+class HomeView(TemplateView):
+    template_name = 'home.html'
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        # Add any context data you want to pass to the template
+        context['features'] = [
+            {
+                'icon': 'bi-people',
+                'title': 'Connect with Native Speakers',
+                'description': 'Practice languages with native speakers from around the world.'
+            },
+            {
+                'icon': 'bi-chat-square-text',
+                'title': 'Real Conversations',
+                'description': 'Engage in meaningful conversations and improve your language skills.'
+            },
+            {
+                'icon': 'bi-globe',
+                'title': 'Learn Anywhere',
+                'description': 'Access our platform from any device, anywhere, anytime.'
+            },
+            {
+                'icon': 'bi-award',
+                'title': 'Earn Badges',
+                'description': 'Get recognized for your language learning progress.'
+            }
+        ]
+        return context
 
 def register_view(request):
     if request.user.is_authenticated:
