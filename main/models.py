@@ -113,20 +113,61 @@ class Message(models.Model):
 
 class ProgressLog(models.Model):
     """Track user's learning progress"""
+    ACTIVITY_CHOICES = [
+        ('chat', 'Chat'),
+        ('lesson', 'Lesson'),
+        ('practice', 'Speaking Practice'),
+        ('vocab', 'Vocabulary'),
+        ('grammar', 'Grammar'),
+        ('other', 'Other')
+    ]
+    
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='progress_logs')
     date = models.DateField(auto_now_add=True)
+    activity_type = models.CharField(max_length=20, choices=ACTIVITY_CHOICES, default='chat')
+    language = models.CharField(max_length=2, choices=Profile.LANGUAGES, default='en')
     minutes_studied = models.PositiveIntegerField(default=0)
     words_learned = models.PositiveIntegerField(default=0)
+    proficiency_level = models.CharField(max_length=20, choices=[
+        ('beginner', 'Beginner'),
+        ('elementary', 'Elementary'),
+        ('intermediate', 'Intermediate'),
+        ('upper_intermediate', 'Upper Intermediate'),
+        ('advanced', 'Advanced'),
+        ('fluent', 'Fluent')
+    ], default='beginner')
     notes = models.TextField(blank=True)
     
     class Meta:
         ordering = ['-date']
-        
-    def __str__(self):
-        return f"{self.user.username}'s progress on {self.date}"
+        verbose_name_plural = 'Progress Logs'
 
     def __str__(self):
-        return f"{self.sender} in {self.room}: {self.content[:50]}"
+        return f"{self.user.username}'s {self.get_activity_type_display()} on {self.date}"
+    
+    @classmethod
+    def get_weekly_summary(cls, user):
+        """Get weekly summary of user's progress"""
+        today = timezone.now().date()
+        week_ago = today - timezone.timedelta(days=7)
+        
+        logs = cls.objects.filter(
+            user=user,
+            date__range=[week_ago, today]
+        )
+        
+        total_minutes = sum(log.minutes_studied for log in logs)
+        total_words = sum(log.words_learned for log in logs)
+        
+        return {
+            'total_minutes': total_minutes,
+            'total_hours': round(total_minutes / 60, 1),
+            'words_learned': total_words,
+            'activity_distribution': logs.values('activity_type').annotate(
+                count=models.Count('id'),
+                total_minutes=models.Sum('minutes_studied')
+            )
+        }
 
 
 @receiver(post_save, sender=User)

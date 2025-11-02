@@ -1,12 +1,16 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth import login, authenticate, logout
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
 from django.contrib.auth.models import User
 from django.contrib import messages
 from django.db.models import Q
-from django.views.generic import TemplateView
-from .models import Profile, Message, ChatRoom
+from django.views.generic import TemplateView, ListView, CreateView, UpdateView, DeleteView
+from django.urls import reverse_lazy
+from django.utils import timezone
+from django.db.models import Count, Sum
+from .models import Profile, Message, ChatRoom, ProgressLog
 from .forms import ProfileForm
 
 class HomeView(TemplateView):
@@ -156,34 +160,162 @@ def chat_view(request, user_id):
 @login_required
 def inbox_view(request):
     # Get all chat rooms where the current user is a participant
-    chat_rooms = ChatRoom.objects.filter(participants=request.user).order_by('-last_updated')
+    chat_rooms = ChatRoom.objects.filter(participants=request.user)
     
+    # Get the latest message for each chat room
+    latest_messages = {}
+    for room in chat_rooms:
+        latest_message = Message.objects.filter(room=room).order_by('-timestamp').first()
+        if latest_message:
+            latest_messages[room.id] = {
+                'content': latest_message.content,
+                'timestamp': latest_message.timestamp,
+                'sender': latest_message.sender,
+                'is_read': latest_message.is_read
+            }
+    
+    # Get unread message counts for each room
+    unread_counts = {}
+    for room in chat_rooms:
+        unread_count = Message.objects.filter(
+            room=room, 
+            is_read=False
+        ).exclude(sender=request.user).count()
+        unread_counts[room.id] = unread_count
+    
+    # Prepare conversations data with the other user's information
     conversations = []
     for room in chat_rooms:
-        # Get the other participant (for 1:1 chat)
-        other_participant = room.get_other_participant(request.user)
-        if not other_participant:  # Skip if no other participant (shouldn't happen)
-            continue
-            
-        # Get the last message in this chat room
-        last_message = room.messages.order_by('-timestamp').first()
+        # Get the other user in the chat (not the current user)
+        other_user = room.participants.exclude(id=request.user.id).first()
+        if other_user:  # Only include if we found another user
+            conversations.append({
+                'user': other_user,
+                'room': room,
+                'last_message': latest_messages.get(room.id, {})
+            })
+    
+    context = {
+        'conversations': conversations,
+        'unread_counts': unread_counts,
+    }
+    return render(request, 'inbox.html', context)
+
+
+class ProgressDashboardView(LoginRequiredMixin, TemplateView):
+    template_name = 'progress/dashboard.html'
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        user = self.request.user
         
-        # Count unread messages
-        unread_count = room.messages.filter(
-            sender=other_participant,
-            is_read=False
-        ).count()
+        # Get weekly summary
+        today = timezone.now().date()
+        week_ago = today - timezone.timedelta(days=7)
         
-        conversations.append({
-            'user': other_participant,
-            'room': room,
-            'last_message': last_message,
-            'unread_count': unread_count,
-            'is_sender': last_message and last_message.sender == request.user if last_message else False,
-            'last_updated': room.last_updated
+        # Get logs from the past week
+        weekly_logs = ProgressLog.objects.filter(
+            user=user,
+            date__range=[week_ago, today]
+        )
+        
+        # Calculate weekly stats
+        total_minutes = weekly_logs.aggregate(total=Sum('minutes_studied'))['total'] or 0
+        total_words = weekly_logs.aggregate(total=Sum('words_learned'))['total'] or 0
+        
+        # Activity distribution
+        activity_distribution = weekly_logs.values('activity_type').annotate(
+            count=Count('id'),
+            total_minutes=Sum('minutes_studied')
+        )
+        
+        # Calculate percentages for activity distribution
+        total_activities = sum(item['count'] for item in activity_distribution) if activity_distribution else 1
+        for activity in activity_distribution:
+            activity['percentage'] = (activity['count'] / total_activities * 100) if total_activities > 0 else 0
+        
+        # Get recent activities
+        recent_activities = ProgressLog.objects.filter(user=user).order_by('-date')[:5]
+        
+        # Language distribution
+        language_distribution = weekly_logs.values('language').annotate(
+            total_minutes=Sum('minutes_studied')
+        ).order_by('-total_minutes')
+        
+        # Calculate percentages for language distribution
+        total_lang_minutes = sum(item['total_minutes'] for item in language_distribution) if language_distribution else 1
+        for lang in language_distribution:
+            lang['percentage'] = (lang['total_minutes'] / total_lang_minutes * 100) if total_lang_minutes > 0 else 0
+            lang['color'] = self.get_language_color(lang['language'])
+        
+        # Calculate total hours studied
+        total_hours = ProgressLog.objects.filter(user=user).aggregate(
+            total=Sum('minutes_studied')
+        )['total'] or 0
+        
+        # Add data to context
+        context.update({
+            'weekly_summary': {
+                'total_minutes': total_minutes,
+                'total_hours': round(total_minutes / 60, 1) if total_minutes else 0,
+                'words_learned': total_words,
+                'activity_distribution': activity_distribution,
+                'percentage_complete': min(100, int((total_minutes / 300) * 100)) if total_minutes else 0,  # 5 hour weekly goal
+                'goal': 300,  # 5 hours in minutes
+                'total_days': (today - week_ago).days + 1
+            },
+            'recent_activities': recent_activities,
+            'language_distribution': language_distribution,
+            'total_hours_studied': round(total_hours / 60, 1) if total_hours else 0,
+            'total_words_learned': ProgressLog.objects.filter(user=user).aggregate(
+                total=Sum('words_learned')
+            )['total'] or 0,
         })
+        
+        return context
     
-    # Sort conversations by last_updated
-    conversations.sort(key=lambda x: x['last_updated'] if x['last_updated'] else None, reverse=True)
+    def get_language_color(self, language_code):
+        """Return a consistent color for each language"""
+        colors = {
+            'en': '#3498db',  # English - Blue
+            'es': '#e74c3c',  # Spanish - Red
+            'fr': '#2ecc71',  # French - Green
+            'de': '#f39c12',  # German - Orange
+            'it': '#9b59b6',  # Italian - Purple
+            'pt': '#1abc9c',  # Portuguese - Turquoise
+            'ru': '#e67e22',  # Russian - Carrot
+            'zh': '#e74c3c',  # Chinese - Red
+            'ja': '#2c3e50',  # Japanese - Dark Blue
+            'ko': '#34495e',  # Korean - Dark Gray
+        }
+        return colors.get(language_code, '#95a5a6')  # Default gray
+
+
+class ProgressLogCreateView(LoginRequiredMixin, CreateView):
+    model = ProgressLog
+    fields = ['activity_type', 'language', 'minutes_studied', 'words_learned', 'proficiency_level', 'notes']
+    template_name = 'progress/progress_form.html'
+    success_url = reverse_lazy('main:progress_dashboard')
     
-    return render(request, 'inbox.html', {'conversations': conversations})
+    def form_valid(self, form):
+        form.instance.user = self.request.user
+        return super().form_valid(form)
+
+
+class ProgressLogUpdateView(LoginRequiredMixin, UpdateView):
+    model = ProgressLog
+    fields = ['activity_type', 'language', 'minutes_studied', 'words_learned', 'proficiency_level', 'notes']
+    template_name = 'progress/progress_form.html'
+    success_url = reverse_lazy('main:progress_dashboard')
+    
+    def get_queryset(self):
+        return super().get_queryset().filter(user=self.request.user)
+
+
+class ProgressLogDeleteView(LoginRequiredMixin, DeleteView):
+    model = ProgressLog
+    template_name = 'progress/progress_confirm_delete.html'
+    success_url = reverse_lazy('main:progress_dashboard')
+    
+    def get_queryset(self):
+        return super().get_queryset().filter(user=self.request.user)
