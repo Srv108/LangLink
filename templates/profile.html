@@ -1,0 +1,52 @@
+{% extends 'base.html' %}
+
+{% block title %}My Profile - LangLink{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <div class="card shadow">
+            <div class="card-body p-4">
+                <h2 class="mb-4">My Profile</h2>
+                
+                <form method="post" action="{% url 'main:profile' %}">
+                    {% csrf_token %}
+                    
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="id_username" class="form-label">Username</label>
+                            <input type="text" class="form-control" value="{{ user.username }}" disabled>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="id_email" class="form-label">Email</label>
+                            <input type="email" class="form-control" value="{{ user.email|default:'Not provided' }}" disabled>
+                        </div>
+                    </div>
+                    
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="id_native_language" class="form-label">Native Language</label>
+                            {{ form.native_language }}
+                        </div>
+                        <div class="col-md-6">
+                            <label for="id_learning_language" class="form-label">Learning Language</label>
+                            {{ form.learning_language }}
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="id_bio" class="form-label">About Me</label>
+                        {{ form.bio }}
+                        <div class="form-text">Tell others about yourself and your language learning goals.</div>
+                    </div>
+                    
+                    <div class="d-flex justify-content-between align-items-center">
+                        <button type="submit" class="btn btn-primary">Update Profile</button>
+                        <a href="{% url 'main:matches' %}" class="btn btn-outline-primary">Find Language Partners</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

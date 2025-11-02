@@ -1,0 +1,224 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/chat.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="chat-container" data-user-id="{% if request.user.is_authenticated %}{{ request.user.id }}{% endif %}">
+    <div class="chat-sidebar">
+        <div class="chat-header">
+            <h5 class="m-0">Messages</h5>
+            <button type="button" class="btn btn-sm btn-primary rounded-circle" data-bs-toggle="modal" data-bs-target="#newChatModal" title="New Chat">
+                <i class="bi bi-pencil-square"></i>
+            </button>
+        </div>
+        <div class="chat-list">
+            {% for room in chat_rooms %}
+                {% for participant in room.participants.all %}
+                    {% if participant != request.user %}
+                    <a href="{% url 'main:chat_room' room_name=room.name %}" 
+                       class="chat-list-item {% if room.name == room_name %}active{% endif %}">
+                        <div class="chat-avatar">
+                            {% if participant.profile.profile_picture %}
+                                <img src="{{ participant.profile.profile_picture.url }}" alt="{{ participant.username }}">
+                            {% else %}
+                                <div class="avatar-initials">
+                                    {{ participant.first_name|first|default:participant.username|first|upper }}
+                                </div>
+                            {% endif %}
+                            <span class="online-status {% if participant.profile.is_online %}online{% else %}offline{% endif %}"></span>
+                        </div>
+                        <div class="chat-info">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <h6 class="mb-0">{{ participant.get_full_name|default:participant.username }}</h6>
+                                <small class="text-muted">{{ room.last_updated|timesince }} ago</small>
+                            </div>
+                            <p class="text-muted mb-0 text-truncate">
+                                {% with last_message=room.messages.last %}
+                                    {% if last_message %}
+                                        {{ last_message.content|truncatechars:30 }}
+                                    {% else %}
+                                        No messages yet
+                                    {% endif %}
+                                {% endwith %}
+                            </p>
+                        </div>
+                        {% with unread_count=0 %}
+                            {% for msg in room.messages.all %}
+                                {% if msg.sender == participant and not msg.is_read %}
+                                    {% with unread_count=unread_count|add:1 %}
+                                    {% endwith %}
+                                {% endif %}
+                            {% endfor %}
+                            {% if unread_count > 0 %}
+                                <span class="badge bg-primary rounded-pill ms-auto">
+                                    {{ unread_count }}
+                                </span>
+                            {% endif %}
+                        {% endwith %}
+                    </a>
+                    {% endif %}
+                {% endfor %}
+            {% empty %}
+                <div class="text-center p-4">
+                    <div class="mb-3">
+                        <i class="bi bi-chat-square-text text-muted" style="font-size: 2.5rem;"></i>
+                    </div>
+                    <p class="text-muted mb-3">No conversations yet</p>
+                    <a href="{% url 'main:matches' %}" class="btn btn-primary btn-sm">
+                        <i class="bi bi-people me-1"></i> Find Language Partners
+                    </a>
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+    
+    <div class="chat-main {% if not other_participant %}d-none d-md-flex{% endif %}" id="chatMain">
+        {% if other_participant %}
+            <div class="chat-header">
+                <div class="d-flex align-items-center">
+                    <a href="#" class="d-md-none me-3 text-dark" id="backToChats">
+                        <i class="bi bi-arrow-left"></i>
+                    </a>
+                    <div class="chat-avatar me-3">
+                        {% if other_participant.profile.profile_picture %}
+                            <img src="{{ other_participant.profile.profile_picture.url }}" alt="{{ other_participant.username }}">
+                        {% else %}
+                            <div class="avatar-initials">
+                                {{ other_participant.first_name|first|default:other_participant.username|first|upper }}
+                            </div>
+                        {% endif %}
+                        <span class="online-status {% if other_participant.profile.is_online %}online{% else %}offline{% endif %}"></span>
+                    </div>
+                    <div>
+                        <h6 class="mb-0 fw-bold">{{ other_participant.get_full_name|default:other_participant.username }}</h6>
+                        <small class="text-muted">
+                            {% if other_participant.profile.is_online %}
+                                <span class="text-success">•</span> Online
+                            {% else %}
+                                Last seen {{ other_participant.profile.last_seen|timesince }} ago
+                            {% endif %}
+                        </small>
+                    </div>
+                </div>
+                <div class="chat-actions">
+                    <button type="button" class="btn btn-sm btn-outline-secondary rounded-circle me-2" title="Voice Call">
+                        <i class="bi bi-telephone"></i>
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary rounded-circle me-2" title="Video Call">
+                        <i class="bi bi-camera-video"></i>
+                    </button>
+                    <div class="dropdown d-inline-block">
+                        <button class="btn btn-sm btn-outline-secondary rounded-circle" type="button" id="chatMenu" data-bs-toggle="dropdown" aria-expanded="false" title="More options">
+                            <i class="bi bi-three-dots-vertical"></i>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="chatMenu">
+                            <li><a class="dropdown-item" href="{% url 'main:profile' %}"><i class="bi bi-person me-2"></i>View Profile</a></li>
+                            <li><a class="dropdown-item" href="#"><i class="bi bi-mic-mute me-2"></i>Mute Notifications</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item text-danger" href="#"><i class="bi bi-trash me-2"></i>Delete Chat</a></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="chat-messages" id="chatMessages">
+                <div class="text-center text-muted small my-3">
+                    {% now "F j, Y" %}
+                </div>
+                
+                {% for message in messages %}
+                    {% ifchanged message.timestamp.date %}
+                        <div class="text-center text-muted small my-3">
+                            {{ message.timestamp|date:"F j, Y" }}
+                        </div>
+                    {% endifchanged %}
+                    
+                    <div class="message {% if message.sender == request.user %}message-sent{% else %}message-received{% endif %}">
+                        <div class="message-content">
+                            {{ message.content|linebreaksbr }}
+                        </div>
+                        <div class="message-time">
+                            {{ message.timestamp|time:"g:i A" }}
+                            {% if message.sender == request.user %}
+                                {% if message.is_read %}
+                                    <i class="bi bi-check2-all text-primary ms-1"></i>
+                                {% else %}
+                                    <i class="bi bi-check2 ms-1"></i>
+                                {% endif %}
+                            {% endif %}
+                        </div>
+                    </div>
+                {% empty %}
+                    <div class="d-flex flex-column align-items-center justify-content-center h-100">
+                        <div class="text-center p-4">
+                            <div class="mb-3">
+                                <i class="bi bi-chat-left-text display-4 text-muted"></i>
+                            </div>
+                            <h5>No messages yet</h5>
+                            <p class="text-muted">Send a message to start the conversation</p>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+            
+            <form class="chat-input" id="messageForm">
+                {% csrf_token %}
+                <div class="input-group">
+                    <button type="button" class="btn btn-outline-secondary border-end-0" title="Attach file">
+                        <i class="bi bi-paperclip"></i>
+                    </button>
+                    <input type="text" 
+                           name="message" 
+                           class="form-control border-start-0" 
+                           placeholder="Type a message..." 
+                           autocomplete="off" 
+                           required>
+                    <button type="button" class="btn btn-outline-secondary border-end-0" title="Emoji">
+                        <i class="bi bi-emoji-smile"></i>
+                    </button>
+                    <button type="submit" class="btn btn-primary" title="Send">
+                        <i class="bi bi-send"></i>
+                    </button>
+                </div>
+            </form>
+        {% else %}
+            <div class="d-flex flex-column align-items-center justify-content-center h-100">
+                <div class="text-center p-4">
+                    <div class="mb-4">
+                        <i class="bi bi-chat-square-text display-4 text-muted"></i>
+                    </div>
+                    <h4 class="mb-3">Welcome to LangLink Chat</h4>
+                    <p class="text-muted mb-4">Select a conversation or start a new one to begin messaging</p>
+                    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newChatModal">
+                        <i class="bi bi-plus-lg me-2"></i>New Chat
+                    </button>
+                </div>
+            </div>
+        {% endif %}
+    </div>
+    
+    {% if not other_participant %}
+        <div class="d-none d-md-flex align-items-center justify-content-center w-100 bg-light">
+            <div class="text-center p-4">
+                <div class="mb-4">
+                    <i class="bi bi-chat-square-text display-4 text-muted"></i>
+                </div>
+                <h4 class="mb-3">Welcome to LangLink Chat</h4>
+                <p class="text-muted mb-4">Select a conversation or start a new one to begin messaging</p>
+                <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newChatModal">
+                    <i class="bi bi-plus-lg me-2"></i>New Chat
+                </button>
+            </div>
+        </div>
+    {% endif %}
+</div>
+
+<div class="modal fade" id="newChatModal" tabindex="-1" aria-labelledby="newChatModalLabel" aria-hidden="true">
+    </div>
+{% endblock %}
+
+{% block extra_js %}
+{% endblock %}

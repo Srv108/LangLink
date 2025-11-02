@@ -1,0 +1,496 @@
+{% extends 'base.html' %}
+
+{% block title %}Chat with {{ other_user.username }} - LangLink{% endblock %}
+
+{% block extra_css %}
+<style>
+    :root {
+        --primary-color: #4361ee;
+        --primary-light: #4895ef;
+        --secondary-color: #3f37c9;
+        --dark-color: #1a1a2e;
+        --light-color: #f8f9fa;
+        --success-color: #4cc9f0;
+        --danger-color: #f72585;
+        --border-radius: 0.5rem;
+    }
+    
+    body {
+        background-color: #f5f7fb;
+        color: #333;
+        margin: 0;
+        padding: 0;
+        overflow-x: hidden;
+        min-height: 100vh;
+        padding: 20px;
+        box-sizing: border-box;
+    }
+    
+    .chat-container {
+        display: flex;
+        flex-direction: column;
+        height: calc(100vh - 120px);
+        max-width: 900px;
+        margin: 80px auto 20px;
+        background: white;
+        box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
+        position: relative;
+        border-radius: 12px;
+        overflow: hidden;
+    }
+    
+    .chat-header {
+        background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+        color: white;
+        padding: 0.8rem 1.5rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        position: fixed;
+        top: 60px;  /* Height of navbar */
+        left: 0;
+        right: 0;
+        z-index: 1000;
+        max-width: 900px;
+        margin: 0 auto;
+        height: 60px;
+        border-radius: 12px 12px 0 0;
+    }
+    
+    .chat-header .user-info {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+    
+    .chat-header .user-avatar {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.2);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: bold;
+        font-size: 1.2rem;
+    }
+    
+    .message-container {
+        flex: 1;
+        padding: 1.5rem;
+        overflow-y: auto;
+        background: #f0f4f8;
+        background-image: radial-gradient(#e0e7ff 1px, transparent 1px);
+        background-size: 20px 20px;
+        position: absolute;
+        top: 60px;  /* Height of header */
+        bottom: 80px;  /* Height of input */
+        left: 0;
+        right: 0;
+        padding-bottom: 1rem;
+    }
+    
+    .message {
+        margin-bottom: 1rem;
+        max-width: 80%;
+        position: relative;
+        padding: 0.75rem 1rem;
+        border-radius: var(--border-radius);
+        line-height: 1.4;
+        word-wrap: break-word;
+        animation: messageAppear 0.3s ease-out;
+    }
+    
+    @keyframes messageAppear {
+        from {
+            opacity: 0;
+            transform: translateY(10px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    
+    .sent {
+        background: var(--primary-color);
+        color: white;
+        margin-left: auto;
+        border-bottom-right-radius: 0;
+        box-shadow: 0 2px 5px rgba(67, 97, 238, 0.2);
+    }
+    
+    .received {
+        background: white;
+        color: #333;
+        margin-right: auto;
+        border-bottom-left-radius: 0;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+        border: 1px solid #e9ecef;
+    }
+    
+    .message-time {
+        font-size: 0.7rem;
+        opacity: 0.8;
+        margin-top: 0.25rem;
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+    }
+    
+    .sent .message-time {
+        color: rgba(255, 255, 255, 0.8);
+        justify-content: flex-end;
+    }
+    
+    .received .message-time {
+        color: #6c757d;
+    }
+    
+    .message-input-container {
+        padding: 1rem;
+        background: white;
+        border-top: 1px solid #e9ecef;
+        position: fixed;
+        bottom: 20px;
+        left: 0;
+        right: 0;
+        max-width: 900px;
+        margin: 0 auto;
+        border-radius: 0 0 12px 12px;
+    }
+    
+    .message-form {
+        display: flex;
+        gap: 0.5rem;
+    }
+    
+    .message-input {
+        flex: 1;
+        border: 2px solid #e9ecef;
+        border-radius: 2rem;
+        padding: 0.6rem 1.2rem;
+        font-size: 0.95rem;
+        transition: all 0.3s ease;
+    }
+    
+    .message-input:focus {
+        border-color: var(--primary-light);
+        box-shadow: 0 0 0 0.25rem rgba(67, 97, 238, 0.15);
+        outline: none;
+    }
+    
+    .send-button {
+        background: var(--primary-color);
+        color: white;
+        border: none;
+        border-radius: 50%;
+        width: 46px;
+        height: 46px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+    
+    .send-button:hover {
+        background: var(--secondary-color);
+        transform: translateY(-1px);
+    }
+    
+    .send-button:active {
+        transform: translateY(0);
+    }
+    
+    .typing-indicator {
+        display: flex;
+        padding: 1rem;
+        justify-content: flex-start;
+    }
+    
+    .typing-dot {
+        width: 8px;
+        height: 8px;
+        background-color: var(--primary-color);
+        border-radius: 50%;
+        margin: 0 3px;
+        animation: typing 1.4s infinite ease-in-out;
+    }
+    
+    .typing-dot:nth-child(1) { animation-delay: 0s; }
+    .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+    .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+    
+    @keyframes typing {
+        0%, 60%, 100% { transform: translateY(0); }
+        30% { transform: translateY(-5px); }
+    }
+    
+    /* Custom scrollbar */
+    ::-webkit-scrollbar {
+        width: 8px;
+    }
+    
+    ::-webkit-scrollbar-track {
+        background: #f1f1f1;
+        border-radius: 4px;
+    }
+    
+    ::-webkit-scrollbar-thumb {
+        background: #c1c1c1;
+        border-radius: 4px;
+    }
+    
+    ::-webkit-scrollbar-thumb:hover {
+        background: #a8a8a8;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="chat-container">
+    <!-- Chat Header -->
+    <div class="chat-header">
+        <div class="user-info">
+            <a href="{% url 'main:inbox' %}" class="btn btn-sm btn-outline-light me-2 d-md-none">
+                <i class="bi bi-arrow-left"></i>
+            </a>
+            <div class="user-avatar">
+                {{ other_user.username|slice:":1"|upper }}
+            </div>
+            <div>
+                <h6 class="mb-0">{{ other_user.username }}</h6>
+                <small>
+                    {% if other_user.is_online %}
+                        <span class="text-success">• Online</span>
+                    {% else %}
+                        Last seen {{ other_user.last_login|timesince }} ago
+                    {% endif %}
+                </small>
+            </div>
+        </div>
+        <div>
+            <a href="{% url 'main:profile' %}" class="btn btn-sm btn-outline-light">
+                <i class="bi bi-person"></i> Profile
+            </a>
+        </div>
+    </div>
+    
+    <!-- Messages Container -->
+    <div id="messageContainer" class="message-container">
+        {% for message in chat_messages %}
+        <div class="message {% if message.sender == request.user %}sent{% else %}received{% endif %}" data-message-id="{{ message.id }}">
+            <div class="message-content">{{ message.content }}</div>
+            <div class="message-time">
+                {{ message.timestamp|date:"g:i A" }}
+                {% if message.sender == request.user %}
+                    <i class="bi {% if message.is_read %}bi-check2-all text-success{% else %}bi-check2{% endif %}"></i>
+                {% endif %}
+            </div>
+        </div>
+        {% empty %}
+            <div class="d-flex justify-content-center align-items-center h-100">
+                <div class="text-center text-muted">
+                    <i class="bi bi-chat-square-text display-4 opacity-25 mb-3"></i>
+                    <p class="h5">No messages yet</p>
+                    <p class="text-muted">Say hello to start the conversation!</p>
+                </div>
+            </div>
+        {% endfor %}
+        
+        <div id="typingIndicator" class="typing-indicator" style="display: none;">
+            <div class="typing-dot"></div>
+            <div class="typing-dot"></div>
+            <div class="typing-dot"></div>
+        </div>
+    </div>
+    
+    <!-- Message Input -->
+    <div class="message-input-container">
+        <form id="messageForm" method="post" action="{% url 'main:chat' other_user.id %}" class="message-form">
+            {% csrf_token %}
+            <input type="text" 
+                   name="content" 
+                   class="message-input" 
+                   placeholder="Type a message..." 
+                   required
+                   autocomplete="off"
+                   autofocus>
+            <button type="submit" class="send-button">
+                <i class="bi bi-send"></i>
+            </button>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Auto-scroll to bottom of messages
+    const messageContainer = document.getElementById('messageContainer');
+    const messageForm = document.getElementById('messageForm');
+    const messageInput = messageForm.querySelector('input[name="content"]');
+    
+    function scrollToBottom() {
+        messageContainer.scrollTop = messageContainer.scrollHeight;
+    }
+    
+    // Initial scroll to bottom
+    scrollToBottom();
+    
+    // Function to add a new message to the UI
+    function addMessageToUI(message, isSent = true) {
+        // Check if message already exists in the DOM
+        const existingMessage = document.querySelector(`[data-message-id="${message.id}"]`);
+        if (existingMessage) return;
+        
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${isSent ? 'sent' : 'received'}`;
+        messageDiv.dataset.messageId = message.id;
+        
+        const now = new Date();
+        const timeString = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+        
+        messageDiv.innerHTML = `
+            <div class="message-content">${message.content}</div>
+            <div class="message-time">
+                ${timeString}
+                ${isSent ? '<i class="bi bi-check2 ms-1"></i>' : ''}
+            </div>
+        `;
+        
+        // Remove the "no messages" message if it exists
+        const noMessagesDiv = messageContainer.querySelector('.text-center.text-muted.py-5');
+        if (noMessagesDiv) {
+            noMessagesDiv.remove();
+        }
+        
+        messageContainer.appendChild(messageDiv);
+        scrollToBottom();
+    }
+    
+    // Handle form submission with AJAX
+    messageForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const content = messageInput.value.trim();
+        if (!content) return;
+        
+        const formData = new FormData(this);
+        const url = this.action;
+        const submitButton = this.querySelector('button[type="submit"]');
+        
+        // Disable the submit button to prevent multiple submissions
+        submitButton.disabled = true;
+        
+        // Show typing indicator
+        const typingIndicator = document.getElementById('typingIndicator');
+        typingIndicator.style.display = 'flex';
+        scrollToBottom();
+        
+        // Clear the input field immediately for better UX
+        messageInput.value = '';
+        
+        // Add the message to the UI immediately
+        const tempMessage = {
+            id: 'temp-' + Date.now(),
+            content: content,
+            timestamp: new Date().toISOString(),
+            is_read: false
+        };
+        
+        addMessageToUI(tempMessage, true);
+        
+        // Send the message via AJAX
+        fetch(url, {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'X-CSRFToken': formData.get('csrfmiddlewaretoken')
+            },
+            credentials: 'same-origin'
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.json();
+        })
+        .then(data => {
+            typingIndicator.style.display = 'none';
+            
+            if (data.status === 'success') {
+                // Remove the temporary message and add the real one
+                const tempMessageEl = document.querySelector(`[data-message-id="${tempMessage.id}"]`);
+                if (tempMessageEl) {
+                    tempMessageEl.remove();
+                }
+                
+                // Add the real message from the server
+                if (data.message_id) {
+                    const message = {
+                        id: data.message_id,
+                        content: content,
+                        timestamp: new Date().toISOString(),
+                        is_read: false
+                    };
+                    addMessageToUI(message, true);
+                }
+                
+                // Re-enable the submit button and focus the input
+                submitButton.disabled = false;
+                messageInput.focus();
+            } else {
+                throw new Error(data.message || 'Failed to send message');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            typingIndicator.style.display = 'none';
+            submitButton.disabled = false;
+            messageInput.value = content; // Restore the message that failed to send
+            messageInput.focus();
+            
+            // Show a more user-friendly error message
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'alert alert-danger';
+            errorDiv.textContent = 'Failed to send message. Please try again.';
+            messageForm.parentNode.insertBefore(errorDiv, messageForm);
+            
+            // Remove error message after 3 seconds
+            setTimeout(() => {
+                errorDiv.remove();
+            }, 3000);
+            
+            // Remove the temporary message on error
+            const tempMessageEl = document.querySelector(`[data-message-id="${tempMessage.id}"]`);
+            if (tempMessageEl) {
+                tempMessageEl.remove();
+            }
+            
+            // Re-enable the submit button after request completes
+            submitButton.disabled = false;
+        });
+    });
+    
+    // Auto-focus the input field when the page loads and after sending a message
+    function focusInput() {
+        messageInput.focus();
+    }
+    
+    // Set up event listeners
+    document.addEventListener('DOMContentLoaded', focusInput);
+    
+    // Also focus the input when clicking anywhere in the message container
+    messageContainer.addEventListener('click', focusInput);
+    
+    // Handle form reset after successful submission
+    messageForm.addEventListener('submit', function() {
+        // This will be called after the form is submitted and the button is re-enabled
+        setTimeout(focusInput, 0);
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,264 @@
+{% extends 'chat/base_chat.html' %}
+
+{% block title %}{% if other_participant %}{{ other_participant.get_full_name|default:other_participant.username }} | {% endif %}Chat - LangLink{% endblock %}
+
+{% block extra_js %}
+<script>
+// THIS IS THE FIX: Wait for the page to load before running any code
+document.addEventListener('DOMContentLoaded', function() {
+
+    // Ensure we have a room ID
+    const ROOM_ID = {% if chat_room.id %}{{ chat_room.id }}{% else %}null{% endif %}; 
+    if (!ROOM_ID) {
+        console.error('Room ID is missing. Cannot initialize WebSocket.');
+        return; // Stop if we don't have a room ID
+    }
+    
+    // WebSocket connection
+    let chatSocket = null;
+    let reconnectAttempts = 0;
+    const maxReconnectAttempts = 5;
+    const reconnectDelay = 3000; // 3 seconds
+    const roomId = '{{ chat_room.id|escapejs }}'; 
+    let isConnecting = false;
+    
+    function getWebSocketUrl() {
+        // Get room ID from the template context
+        const roomId = '{{ chat_room.id|escapejs }}';
+        if (!roomId) {
+            console.error('Room ID is missing. Cannot create WebSocket URL.');
+            return null;
+        }
+        
+        const protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+        const host = window.location.host;
+        const path = `/ws/chat/${roomId}/`;
+        const url = `${protocol}${host}${path}`;
+        console.log('WebSocket URL:', url);
+        return url;
+    }
+        
+    function connectWebSocket() {
+        const wsUrl = getWebSocketUrl();
+        if (!wsUrl) {
+            console.error('Cannot connect: Invalid WebSocket URL');
+            return;
+        }
+
+        console.log('Connecting to WebSocket:', wsUrl);
+        chatSocket = new WebSocket(wsUrl);
+
+        chatSocket.onopen = function(e) {
+            console.log('WebSocket connection established');
+            // Enable message input
+            const messageInput = document.querySelector('input[name="message"]');
+            if (messageInput) messageInput.disabled = false;
+        };
+
+        chatSocket.onclose = function(e) {
+            console.error('Chat socket closed unexpectedly');
+            // Try to reconnect after a delay
+            setTimeout(connectWebSocket, 3000);
+        };
+
+        chatSocket.onerror = function(error) {
+            console.error('WebSocket error:', error);
+        };
+
+        // The message handler must be set
+        chatSocket.onmessage = handleIncomingMessage;
+    }
+    
+    // Function to send message with retry logic
+    async function sendMessage(message, senderId) {
+        if (!chatSocket || chatSocket.readyState !== WebSocket.OPEN) {
+            console.log('WebSocket not connected, attempting to reconnect...');
+            connectWebSocket(); // Try to reconnect
+            await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 sec
+
+            if (!chatSocket || chatSocket.readyState !== WebSocket.OPEN) {
+                throw new Error('Cannot send message: WebSocket connection failed');
+            }
+        }
+        
+        try {
+            chatSocket.send(JSON.stringify({
+                'message': message,
+                'sender_id': senderId
+            }));
+            return true;
+        } catch (error) {
+            console.error('Error sending message:', error);
+            return false;
+        }
+    }
+    
+    // Initial connection
+    connectWebSocket();
+
+    // Function to handle incoming messages
+    function handleIncomingMessage(e) {
+        try {
+            const data = JSON.parse(e.data);
+            console.log('Message received:', data);
+            
+            if (data.type !== 'chat_message') {
+                console.log('Non-chat message received, ignoring');
+                return;
+            }
+            
+            const currentUserId = document.querySelector('.chat-container')?.dataset.userId;
+            const isOwnMessage = currentUserId && parseInt(data.sender_id) === parseInt(currentUserId);
+            
+            if (!data.message || !data.timestamp) {
+                console.error('Invalid message format:', data);
+                return;
+            }
+            
+            const messagesDiv = document.querySelector('#chatMessages');
+            if (!messagesDiv) {
+                console.error('Messages container not found');
+                return;
+            }
+
+            // Remove empty state if it exists
+            const emptyState = messagesDiv.querySelector('.d-flex.flex-column');
+            if (emptyState) {
+                messagesDiv.innerHTML = '';
+                 // Add today's date header if it's the first message
+                const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+                messagesDiv.innerHTML += `
+                    <div class="text-center text-muted small my-3">
+                        ${today}
+                    </div>
+                `;
+            }
+            
+            if (data.message_id && document.querySelector(`[data-message-id="${data.message_id}"]`)) {
+                console.log('Duplicate message received, skipping:', data.message_id);
+                return;
+            }
+            
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${isOwnMessage ? 'message-sent' : 'message-received'}`;
+            if (data.message_id) {
+                messageDiv.setAttribute('data-message-id', data.message_id);
+            }
+            
+            const messageTime = new Date(data.timestamp);
+            const timeString = messageTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            
+            const messageContent = escapeHtml(data.message).replace(/\n/g, '<br>');
+            const readStatus = isOwnMessage 
+                ? `<i class="bi bi-check2-all${data.is_read ? ' text-primary' : ''}"></i>` 
+                : '';
+
+            messageDiv.innerHTML = `
+                <div class="message-content">
+                    <div class="message-text">${messageContent}</div>
+                    <div class="message-time">
+                        ${timeString} 
+                        ${readStatus}
+                    </div>
+                </div>
+            `;
+            
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            
+        } catch (error) {
+            console.error('Error processing message:', error, e.data);
+        }
+    };
+    
+    function escapeHtml(unsafe) {
+        return unsafe
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+
+    // --- This part will now work! ---
+    const messageForm = document.querySelector('#messageForm');
+    if (messageForm) {
+        messageForm.addEventListener('submit', async function(e) {
+            e.preventDefault(); // This will FINALLY run and stop the GET request
+            
+            const messageInput = messageForm.querySelector('input[name="message"]');
+            const message = messageInput?.value.trim();
+            
+            if (!message) return;
+            
+            const currentUserId = document.querySelector('.chat-container')?.dataset.userId;
+            if (!currentUserId) {
+                console.error('User ID not found');
+                return;
+            }
+            
+            // Check WebSocket connection
+            if (!chatSocket || chatSocket.readyState !== WebSocket.OPEN) {
+                console.error('WebSocket is not connected. State:', chatSocket?.readyState);
+                alert('Connection lost. Please refresh the page.'); // This is your alert
+                return;
+            }
+            
+            const submitButton = this.querySelector('button[type="submit"]');
+            const originalButtonText = submitButton.innerHTML;
+            submitButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
+            messageInput.disabled = true;
+            
+            try {
+                // Send message via WebSocket
+                const success = await sendMessage(message, currentUserId);
+                
+                if (success) {
+                    messageInput.value = ''; // Clear input on success
+                } else {
+                    alert('Failed to send message.');
+                }
+
+            } catch (error) {
+                console.error('Error in message handling:', error);
+                alert('An error occurred while sending the message. Please try again.');
+            } finally {
+                messageInput.disabled = false;
+                messageInput.focus();
+                submitButton.innerHTML = originalButtonText;
+            }
+        });
+    } else {
+        console.error("Message form not found! This is the core problem.");
+    }
+    
+    // Auto-scroll to bottom of messages
+    const messagesDiv = document.querySelector('#chatMessages');
+    if (messagesDiv) {
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+    
+    // Handle back button on mobile
+    const backButton = document.querySelector('#backToChats');
+    if (backButton) {
+        backButton.addEventListener('click', function(e) {
+            e.preventDefault();
+            document.querySelector('.chat-sidebar').classList.add('show');
+            document.querySelector('.chat-main').classList.remove('show');
+        });
+    }
+    
+    // Toggle chat list on mobile
+    if (window.innerWidth < 768) {
+        if ('{{ room_name }}') {
+            document.querySelector('.chat-sidebar').classList.remove('show');
+            document.querySelector('.chat-main').classList.add('show');
+        } else {
+            document.querySelector('.chat-sidebar').classList.add('show');
+            document.querySelector('.chat-main').classList.remove('show');
+        }
+    }
+
+}); // <-- CLOSE THE DOMContentLoaded LISTENER
+</script>
+{% endblock %}
