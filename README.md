@@ -90,25 +90,25 @@ LangLink/
 ## Screenshots
 
 ### Home Page
-![Home Page](![alt text](image.png)) (![alt text](image-1.png))
+(![alt text](image.png)) (![alt text](image-1.png))
 
 ### Registration Page
-![Registration](screenshots/register.png)
+(![alt text](image-7.png))
 
 ### Login Page
-![Login](screenshots/login.png)
+(![alt text](image-6.png))
 
 ### User Profile
-![Profile](![alt text](image-2.png))
+(![alt text](image-2.png))
 
 ### Find Matches
-![Matches](![alt text](image-3.png))
+(![alt text](image-3.png))
 
 ### Inbox
-![Inbox](![alt text](image-4.png))
+(![alt text](image-4.png))
 
 ### Progress Dashboard
-![Progress Dashboard](![alt text](image-5.png))
+(![alt text](image-5.png))
 
 ## Configuration
 
